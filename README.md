@@ -133,8 +133,13 @@ and a real `OPENROUTER_API_KEY` configured:
 python scripts/run_public_samples.py http://localhost:8000
 ```
 
-This posts all 10 public cases to the live endpoint and reports schema
-validity, constraint validity, and cost vs. the organizer reference for each.
+This posts all 10 public cases to the live endpoint using the real configured
+LLM, and for each case reports: schema validity, energy-balance/constraint
+validity, a diff of the returned `directive_interpretation` against the
+organizer's reference ground truth (directive type, `applies`, hours, and
+numeric fields — this is the check that actually exercises the mandatory LLM
+path end-to-end, not just the deterministic layers), and cost vs. the
+organizer reference optimum.
 
 ## Running the test suite
 
@@ -195,6 +200,18 @@ must be supplied at `docker run` time via `-e OPENROUTER_API_KEY=...`.
   directive type, `applies`/`no_op`, and numeric values) — it only removes
   a demonstrated LLM weak point from a place where a cheap deterministic
   check is exact.
+- **Deterministic percentage-reserve normalization**: for
+  `minimum_battery_reserve`, the note text is allowed to state the reserve as
+  a percentage of capacity (e.g. "keep at least 50% of battery capacity").
+  The system/user prompt in `app/llm_interpreter.py` tells the model to
+  convert that itself using the `battery.capacity_kwh` it's given, but
+  `app/guardrails.py::_percentage_reserve_override` never trusts that the
+  model's arithmetic was correct: if the original note text contains an
+  explicit `N%`, guardrails deterministically recompute
+  `minimum_energy_kwh = (N / 100) * capacity_kwh` and that value overrides
+  whatever number the LLM produced. Same philosophy as the hour-window
+  cross-check above — the LLM decides *what* directive and *that* a
+  percentage was given; deterministic code does the arithmetic.
 - **`structured_adjustment` schema**: the system prompt asks the model to
   always return a single JSON object with all possible adjustment fields
   (`hours`, `factor`, `minimum_energy_kwh`, `max_grid_kwh`), using `null` for
