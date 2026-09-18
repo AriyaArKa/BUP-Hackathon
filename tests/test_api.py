@@ -1,3 +1,6 @@
+import asyncio
+import time
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -68,6 +71,28 @@ def test_optimize_energy_llm_failure_falls_back_to_no_op(monkeypatch):
     body = resp.json()
     assert body["directive_interpretation"][0]["directive_type"] == "no_op"
     assert body["directive_interpretation"][0]["applies"] is False
+
+
+def test_hanging_llm_call_is_hard_bounded_and_falls_back(monkeypatch):
+    # Regression test: observed in practice that an OpenRouter model can hang
+    # well past the SDK's own configured client timeout. main.py must not
+    # trust that -- it wraps the call in asyncio.wait_for as a hard ceiling.
+    monkeypatch.setattr(main, "LLM_TIMEOUT_SECONDS", 0.2)
+
+    async def hanging_interpret(notes):
+        await asyncio.sleep(10)
+        return []  # pragma: no cover - should never be reached
+
+    monkeypatch.setattr(main, "interpret_notes", hanging_interpret)
+
+    start = time.monotonic()
+    resp = client.post("/optimize-energy", json=_sample_payload())
+    elapsed = time.monotonic() - start
+
+    assert elapsed < 5, f"request took {elapsed:.1f}s, should be bounded near the 0.2s LLM timeout"
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["directive_interpretation"][0]["directive_type"] == "no_op"
 
 
 def test_malformed_json_returns_400():

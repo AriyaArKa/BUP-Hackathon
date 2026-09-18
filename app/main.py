@@ -1,9 +1,11 @@
+import asyncio
 import logging
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.config import LLM_TIMEOUT_SECONDS
 from app.guardrails import guardrail_validate
 from app.llm_interpreter import interpret_notes
 from app.optimizer import InfeasibleScheduleError, solve_schedule
@@ -60,7 +62,14 @@ def _build_plan_summary(
 @app.post("/optimize-energy", response_model=OptimizeEnergyResponse)
 async def optimize_energy(payload: OptimizeEnergyRequest) -> OptimizeEnergyResponse:
     try:
-        raw_llm_entries = await interpret_notes(payload.operator_notes)
+        # Never trust a third-party SDK's own timeout handling to actually
+        # bound the call (observed in practice: some OpenRouter models can
+        # hang well past the client-configured timeout). This wait_for is
+        # the hard ceiling that guarantees the API contract's per-request
+        # timeout regardless of what the LLM provider does.
+        raw_llm_entries = await asyncio.wait_for(
+            interpret_notes(payload.operator_notes), timeout=LLM_TIMEOUT_SECONDS
+        )
     except Exception:
         logger.exception("LLM interpretation failed; falling back to no_op for all notes")
         raw_llm_entries = []

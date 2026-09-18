@@ -78,6 +78,14 @@ null.
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
+# A single shared client, reused across requests. Avoids repeated
+# connection setup/teardown, and avoids depending on an explicit
+# `client.close()` completing promptly if a call is being cancelled by our
+# own timeout wrapper in main.py.
+_client = AsyncOpenAI(
+    api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL, timeout=LLM_TIMEOUT_SECONDS
+)
+
 
 def _build_user_prompt(operator_notes: List[str]) -> str:
     numbered = "\n".join(f"{i}: {note}" for i, note in enumerate(operator_notes))
@@ -108,22 +116,16 @@ async def interpret_notes(operator_notes: List[str]) -> List[dict]:
     if not OPENROUTER_API_KEY:
         raise RuntimeError("OPENROUTER_API_KEY is not configured")
 
-    client = AsyncOpenAI(
-        api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL, timeout=LLM_TIMEOUT_SECONDS
+    completion = await _client.chat.completions.create(
+        model=OPENROUTER_MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": _build_user_prompt(operator_notes)},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0,
+        extra_headers={"X-Title": "GridWise LLM - BUP CSE Fest 2026"},
     )
-    try:
-        completion = await client.chat.completions.create(
-            model=OPENROUTER_MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": _build_user_prompt(operator_notes)},
-            ],
-            response_format={"type": "json_object"},
-            temperature=0,
-            extra_headers={"X-Title": "GridWise LLM - BUP CSE Fest 2026"},
-        )
-    finally:
-        await client.close()
 
     content = completion.choices[0].message.content
     parsed = _extract_json_object(content)
