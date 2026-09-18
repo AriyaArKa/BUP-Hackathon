@@ -59,6 +59,63 @@ def _compile_directives(
     return effective_solar_factor, min_energy, no_charge_hours, no_discharge_hours, max_grid
 
 
+def _final_replay_check(
+    plan: List[HourlyPlanEntry],
+    demand: dict,
+    effective_solar: dict,
+    battery: BatteryConfig,
+    min_energy: dict,
+    no_charge_hours: set,
+    no_discharge_hours: set,
+    max_grid: dict,
+    tol: float = 1e-3,
+) -> None:
+    """Independently replay the solved plan against every rule and every
+    applied directive before it is allowed to leave the service. This is the
+    "Final Validator" step in the Problem Statement's processing diagram --
+    it must never trust the solver's own bookkeeping without re-checking it.
+    """
+    prev_energy = battery.initial_energy_kwh
+    for p in plan:
+        h = p.hour
+        charge_amt = p.battery_kwh if p.battery_action == "charge" else 0.0
+        discharge_amt = p.battery_kwh if p.battery_action == "discharge" else 0.0
+
+        if p.grid_kwh < -tol or p.solar_used_kwh < -tol or p.battery_kwh < -tol:
+            raise InfeasibleScheduleError(f"Negative energy value produced for hour {h}.")
+
+        if p.solar_used_kwh > effective_solar[h] + tol:
+            raise InfeasibleScheduleError(f"Solar usage exceeds effective solar at hour {h}.")
+
+        balance = p.grid_kwh + p.solar_used_kwh + discharge_amt
+        required = demand[h] + charge_amt
+        if abs(balance - required) > tol:
+            raise InfeasibleScheduleError(f"Energy balance violated at hour {h}.")
+
+        expected_energy = prev_energy + charge_amt - discharge_amt
+        if abs(expected_energy - p.battery_energy_after_kwh) > tol:
+            raise InfeasibleScheduleError(f"Battery transition inconsistent at hour {h}.")
+        if p.battery_energy_after_kwh < min_energy[h] - tol or p.battery_energy_after_kwh > battery.capacity_kwh + tol:
+            raise InfeasibleScheduleError(f"Battery bound violated at hour {h}.")
+
+        if charge_amt > battery.max_charge_kwh_per_hour + tol:
+            raise InfeasibleScheduleError(f"Charge rate limit violated at hour {h}.")
+        if discharge_amt > battery.max_discharge_kwh_per_hour + tol:
+            raise InfeasibleScheduleError(f"Discharge rate limit violated at hour {h}.")
+
+        if h in no_charge_hours and charge_amt > tol:
+            raise InfeasibleScheduleError(f"no_charge_window violated at hour {h}.")
+        if h in no_discharge_hours and discharge_amt > tol:
+            raise InfeasibleScheduleError(f"no_discharge_window violated at hour {h}.")
+        if h in max_grid and p.grid_kwh > max_grid[h] + tol:
+            raise InfeasibleScheduleError(f"max_grid_window violated at hour {h}.")
+
+        prev_energy = p.battery_energy_after_kwh
+
+    if abs(plan[-1].battery_energy_after_kwh - battery.initial_energy_kwh) > tol:
+        raise InfeasibleScheduleError("End-of-day battery neutrality violated.")
+
+
 def solve_schedule(
     hours: List[HourEntry],
     battery: BatteryConfig,
@@ -149,6 +206,10 @@ def solve_schedule(
                 battery_energy_after_kwh=round(e_after, 6),
             )
         )
+
+    _final_replay_check(
+        plan, demand, effective_solar, battery, min_energy, no_charge_hours, no_discharge_hours, max_grid
+    )
 
     total_grid_kwh = round(sum(p.grid_kwh for p in plan), 6)
     total_cost_bdt = round(sum(p.grid_kwh * tariff[p.hour] for p in plan), 6)

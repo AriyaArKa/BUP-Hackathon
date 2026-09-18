@@ -32,6 +32,13 @@ Energy Data + Operator Notes
         │            to energy balance, battery bounds/rate limits, and
         │            end-of-day battery neutrality.
         ▼
+  Final Validator (app/optimizer.py:_final_replay_check) — independently
+        │            replays the solved plan hour-by-hour against energy
+        │            balance, solar/battery bounds, rate limits, and every
+        │            applied directive. Never trusts the solver's own
+        │            bookkeeping; raises a safe error instead of returning
+        │            an unverified plan.
+        ▼
   Final response (app/main.py) — totals recalculated from hourly_plan itself,
                                   never trusted from solver internals directly.
 ```
