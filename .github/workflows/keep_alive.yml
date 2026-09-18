@@ -6,6 +6,7 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch: # Allows manual trigger from GitHub Actions tab
 
+
 jobs:
   ping-render:
     runs-on: ubuntu-latest
