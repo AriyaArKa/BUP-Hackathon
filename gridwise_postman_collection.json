@@ -1,0 +1,236 @@
+{
+  "info": {
+    "_postman_id": "9f76a2b8-7c82-4113-a442-99547d2ce892",
+    "name": "GridWise LLM - Live Endpoint Test Suite",
+    "description": "Postman Collection to test the deployed GridWise LLM-Assisted Smart Campus Energy Optimization Service on Render.\n\nLive URL: https://bup-hackathon-vimu.onrender.com",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://bup-hackathon-vimu.onrender.com",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health Check (GET /health)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Status is ok\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"ok\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/health",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "health"
+          ]
+        },
+        "description": "Checks service readiness. Returns {\"status\": \"ok\"} with HTTP 200."
+      },
+      "response": []
+    },
+    {
+      "name": "2. Optimize Energy - SAMPLE-01 (Solar Reduction + Distractor)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Response contains all required top-level fields\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"scenario_id\");",
+              "    pm.expect(jsonData).to.have.property(\"directive_interpretation\");",
+              "    pm.expect(jsonData).to.have.property(\"hourly_plan\");",
+              "    pm.expect(jsonData).to.have.property(\"total_grid_kwh\");",
+              "    pm.expect(jsonData).to.have.property(\"total_cost_bdt\");",
+              "    pm.expect(jsonData).to.have.property(\"peak_grid_kwh\");",
+              "    pm.expect(jsonData).to.have.property(\"plan_summary\");",
+              "});",
+              "pm.test(\"Hourly plan has exactly 24 entries\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.hourly_plan.length).to.eql(24);",
+              "});",
+              "pm.test(\"Directive interpretations match notes count\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.directive_interpretation.length).to.eql(2);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"scenario_id\": \"SAMPLE-01\",\n  \"operator_notes\": [\n    \"Facilities will wash the rooftop solar panels from noon until 2 PM. During cleaning, usable solar should be treated as roughly 25% of the forecast.\",\n    \"The sports office moved next month's registration deadline.\"\n  ],\n  \"hours\": [\n    {\"hour\": 0, \"demand_kwh\": 90, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 6},\n    {\"hour\": 1, \"demand_kwh\": 85, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 6},\n    {\"hour\": 2, \"demand_kwh\": 80, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 5},\n    {\"hour\": 3, \"demand_kwh\": 80, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 5},\n    {\"hour\": 4, \"demand_kwh\": 85, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 5},\n    {\"hour\": 5, \"demand_kwh\": 95, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 6},\n    {\"hour\": 6, \"demand_kwh\": 110, \"solar_kwh\": 5, \"tariff_bdt_per_kwh\": 8},\n    {\"hour\": 7, \"demand_kwh\": 130, \"solar_kwh\": 20, \"tariff_bdt_per_kwh\": 10},\n    {\"hour\": 8, \"demand_kwh\": 150, \"solar_kwh\": 50, \"tariff_bdt_per_kwh\": 12},\n    {\"hour\": 9, \"demand_kwh\": 165, \"solar_kwh\": 90, \"tariff_bdt_per_kwh\": 14},\n    {\"hour\": 10, \"demand_kwh\": 175, \"solar_kwh\": 130, \"tariff_bdt_per_kwh\": 16},\n    {\"hour\": 11, \"demand_kwh\": 180, \"solar_kwh\": 165, \"tariff_bdt_per_kwh\": 18},\n    {\"hour\": 12, \"demand_kwh\": 185, \"solar_kwh\": 180, \"tariff_bdt_per_kwh\": 20},\n    {\"hour\": 13, \"demand_kwh\": 190, \"solar_kwh\": 175, \"tariff_bdt_per_kwh\": 22},\n    {\"hour\": 14, \"demand_kwh\": 185, \"solar_kwh\": 150, \"tariff_bdt_per_kwh\": 20},\n    {\"hour\": 15, \"demand_kwh\": 175, \"solar_kwh\": 110, \"tariff_bdt_per_kwh\": 18},\n    {\"hour\": 16, \"demand_kwh\": 160, \"solar_kwh\": 65, \"tariff_bdt_per_kwh\": 16},\n    {\"hour\": 17, \"demand_kwh\": 145, \"solar_kwh\": 25, \"tariff_bdt_per_kwh\": 14},\n    {\"hour\": 18, \"demand_kwh\": 140, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 16},\n    {\"hour\": 19, \"demand_kwh\": 135, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 16},\n    {\"hour\": 20, \"demand_kwh\": 130, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 14},\n    {\"hour\": 21, \"demand_kwh\": 120, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 12},\n    {\"hour\": 22, \"demand_kwh\": 110, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 10},\n    {\"hour\": 23, \"demand_kwh\": 100, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 8}\n  ],\n  \"battery\": {\n    \"capacity_kwh\": 350,\n    \"initial_energy_kwh\": 120,\n    \"minimum_energy_kwh\": 35,\n    \"max_charge_kwh_per_hour\": 75,\n    \"max_discharge_kwh_per_hour\": 75\n  }\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/optimize-energy",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "optimize-energy"
+          ]
+        },
+        "description": "Sample 01: Solar panel cleaning from noon until 2 PM (usable fraction factor 0.25) plus a distractor note."
+      },
+      "response": []
+    },
+    {
+      "name": "3. Optimize Energy - SAMPLE-03 (Percentage Reserve)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Percentage reserve correctly normalized to kWh\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    var reserveDirective = jsonData.directive_interpretation[0];",
+              "    pm.expect(reserveDirective.directive_type).to.eql(\"minimum_battery_reserve\");",
+              "    pm.expect(reserveDirective.structured_adjustment.minimum_energy_kwh).to.eql(100);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"scenario_id\": \"SAMPLE-03\",\n  \"operator_notes\": [\n    \"Keep at least 50% of the battery capacity stored in the battery from 6 PM until 9 PM for emergency operations.\"\n  ],\n  \"hours\": [\n    {\"hour\": 0, \"demand_kwh\": 80, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 6},\n    {\"hour\": 1, \"demand_kwh\": 75, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 6},\n    {\"hour\": 2, \"demand_kwh\": 70, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 5},\n    {\"hour\": 3, \"demand_kwh\": 70, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 5},\n    {\"hour\": 4, \"demand_kwh\": 75, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 5},\n    {\"hour\": 5, \"demand_kwh\": 85, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 6},\n    {\"hour\": 6, \"demand_kwh\": 100, \"solar_kwh\": 5, \"tariff_bdt_per_kwh\": 8},\n    {\"hour\": 7, \"demand_kwh\": 120, \"solar_kwh\": 15, \"tariff_bdt_per_kwh\": 10},\n    {\"hour\": 8, \"demand_kwh\": 145, \"solar_kwh\": 40, \"tariff_bdt_per_kwh\": 12},\n    {\"hour\": 9, \"demand_kwh\": 160, \"solar_kwh\": 75, \"tariff_bdt_per_kwh\": 14},\n    {\"hour\": 10, \"demand_kwh\": 170, \"solar_kwh\": 110, \"tariff_bdt_per_kwh\": 16},\n    {\"hour\": 11, \"demand_kwh\": 175, \"solar_kwh\": 145, \"tariff_bdt_per_kwh\": 18},\n    {\"hour\": 12, \"demand_kwh\": 180, \"solar_kwh\": 165, \"tariff_bdt_per_kwh\": 20},\n    {\"hour\": 13, \"demand_kwh\": 180, \"solar_kwh\": 155, \"tariff_bdt_per_kwh\": 22},\n    {\"hour\": 14, \"demand_kwh\": 175, \"solar_kwh\": 125, \"tariff_bdt_per_kwh\": 20},\n    {\"hour\": 15, \"demand_kwh\": 165, \"solar_kwh\": 80, \"tariff_bdt_per_kwh\": 18},\n    {\"hour\": 16, \"demand_kwh\": 150, \"solar_kwh\": 35, \"tariff_bdt_per_kwh\": 16},\n    {\"hour\": 17, \"demand_kwh\": 140, \"solar_kwh\": 5, \"tariff_bdt_per_kwh\": 14},\n    {\"hour\": 18, \"demand_kwh\": 160, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 22},\n    {\"hour\": 19, \"demand_kwh\": 170, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 24},\n    {\"hour\": 20, \"demand_kwh\": 160, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 20},\n    {\"hour\": 21, \"demand_kwh\": 130, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 14},\n    {\"hour\": 22, \"demand_kwh\": 110, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 10},\n    {\"hour\": 23, \"demand_kwh\": 95, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 8}\n  ],\n  \"battery\": {\n    \"capacity_kwh\": 200,\n    \"initial_energy_kwh\": 80,\n    \"minimum_energy_kwh\": 20,\n    \"max_charge_kwh_per_hour\": 50,\n    \"max_discharge_kwh_per_hour\": 50\n  }\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/optimize-energy",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "optimize-energy"
+          ]
+        },
+        "description": "Sample 03: Tests percentage-to-kWh normalization (50% of 200 kWh = 100 kWh)."
+      },
+      "response": []
+    },
+    {
+      "name": "4. Error Handling - Malformed JSON (400)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 400 Bad Request\", function () {",
+              "    pm.response.to.have.status(400);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"scenario_id\": \"BAD-JSON\",\n  \"operator_notes\": [\"broken json here\""
+        },
+        "url": {
+          "raw": "{{base_url}}/optimize-energy",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "optimize-energy"
+          ]
+        },
+        "description": "Tests that structurally malformed JSON returns HTTP 400."
+      },
+      "response": []
+    },
+    {
+      "name": "5. Error Handling - Missing Battery (422)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 422 Unprocessable Entity\", function () {",
+              "    pm.response.to.have.status(422);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"scenario_id\": \"MISSING-BATTERY\",\n  \"operator_notes\": [\"Some note\"],\n  \"hours\": [\n    {\"hour\": 0, \"demand_kwh\": 100, \"solar_kwh\": 0, \"tariff_bdt_per_kwh\": 6}\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/optimize-energy",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "optimize-energy"
+          ]
+        },
+        "description": "Tests that schema validation failure (missing battery object & missing hours) returns HTTP 422."
+      },
+      "response": []
+    }
+  ]
+}
