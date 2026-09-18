@@ -15,7 +15,11 @@ import pytest
 from app.optimizer import solve_schedule
 from app.schemas import BatteryConfig, DirectiveInterpretation, HourEntry
 
-SAMPLES_PATH = Path(__file__).resolve().parent.parent / "BUP_CSE_FEST_2026_Preli_Public_Sample_Cases.json"
+SAMPLES_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "hackathon_details"
+    / "BUP_CSE_FEST_2026_Preli_Public_Sample_Cases.json"
+)
 
 with open(SAMPLES_PATH, encoding="utf-8") as f:
     SAMPLE_DATA = json.load(f)

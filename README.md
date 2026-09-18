@@ -7,8 +7,8 @@ interpretation deterministically, and hands it to a linear-programming
 optimizer that returns a cost-minimizing 24-hour grid/solar/battery schedule.
 
 Canonical behavior is defined by the organizers'
-`BUP_CSE_FEST_2026_Preliminary_Problem_Statement_GridWise_LLM.pdf`. This
-README only documents how to run and test this implementation.
+`hackathon_details/BUP_CSE_FEST_2026_Preliminary_Problem_Statement_GridWise_LLM.pdf`.
+This README only documents how to run and test this implementation.
 
 ## Architecture
 
@@ -16,7 +16,7 @@ README only documents how to run and test this implementation.
 Energy Data + Operator Notes
         │
         ▼
-  LLM Interpreter  (app/llm_interpreter.py) — OpenAI call, structured JSON output.
+  LLM Interpreter  (app/llm_interpreter.py) — OpenRouter call, JSON output.
         │            Untrusted: may hallucinate, omit notes, or use wrong shapes.
         ▼
   Guardrail Validator (app/guardrails.py) — pure deterministic code.
@@ -59,18 +59,21 @@ Energy Data + Operator Notes
 ## Requirements
 
 - Python 3.11+
-- An OpenAI API key (the LLM is mandatory for operator-note interpretation)
+- An [OpenRouter](https://openrouter.ai/) API key (the LLM is mandatory for
+  operator-note interpretation; OpenRouter gives access to many providers —
+  proprietary and open-weight — through one OpenAI-compatible API)
 
 ## Environment variables
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `OPENAI_API_KEY` | Yes | — | OpenAI API key used for operator-note interpretation. |
-| `OPENAI_MODEL` | No | `gpt-4o-mini` | Chat completions model used for interpretation. |
+| `OPENROUTER_API_KEY` | Yes | — | OpenRouter API key used for operator-note interpretation. |
+| `OPENROUTER_MODEL` | No | `meta-llama/llama-3.3-70b-instruct` | OpenRouter model identifier used for interpretation. Swap to any model on [openrouter.ai/models](https://openrouter.ai/models) (e.g. an OpenRouter `:free` variant, or a top-ranked proprietary model) without code changes. |
+| `OPENROUTER_BASE_URL` | No | `https://openrouter.ai/api/v1` | OpenRouter's OpenAI-compatible endpoint. |
 | `LLM_TIMEOUT_SECONDS` | No | `20` | Per-request timeout for the LLM call. |
 | `PORT` | No | `8000` | Port the service listens on. |
 
-Copy `.env.example` to `.env` and fill in `OPENAI_API_KEY` before running
+Copy `.env.example` to `.env` and fill in `OPENROUTER_API_KEY` before running
 locally. **Never commit `.env` or real key values** — `.gitignore` already
 excludes it.
 
@@ -79,7 +82,7 @@ excludes it.
 ```bash
 git clone <this-repo-url>
 cd BUP
-cp .env.example .env        # then edit .env and set OPENAI_API_KEY
+cp .env.example .env        # then edit .env and set OPENROUTER_API_KEY
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
@@ -118,12 +121,13 @@ JSON
 ```
 
 (The `hours` array must contain all 24 hourly entries — see
-`BUP_CSE_FEST_2026_Preli_Public_Sample_Cases.json` for full worked examples.)
+`hackathon_details/BUP_CSE_FEST_2026_Preli_Public_Sample_Cases.json` for full
+worked examples.)
 
 ### Public-sample test command
 
 Against the organizer-provided public sample pack, with the server running
-and a real `OPENAI_API_KEY` configured:
+and a real `OPENROUTER_API_KEY` configured:
 
 ```bash
 python scripts/run_public_samples.py http://localhost:8000
@@ -158,12 +162,12 @@ This runs three layers, none of which require an API key:
 
 ```bash
 docker build -t gridwise-llm .
-docker run --rm -p 8000:8000 -e OPENAI_API_KEY=sk-... gridwise-llm
+docker run --rm -p 8000:8000 -e OPENROUTER_API_KEY=sk-or-v1-... gridwise-llm
 curl http://localhost:8000/health
 ```
 
 The image binds to `0.0.0.0:8000` and contains no baked-in secrets — the key
-must be supplied at `docker run` time via `-e OPENAI_API_KEY=...`.
+must be supplied at `docker run` time via `-e OPENROUTER_API_KEY=...`.
 
 ## Design choices worth knowing about
 
@@ -179,12 +183,20 @@ must be supplied at `docker run` time via `-e OPENAI_API_KEY=...`.
   back to `no_op` and the optimizer still returns a valid schedule under the
   normal GridWise rules — the service never crashes or 5xxs on a provider
   outage, per the "safe failure" requirement in the Problem Statement.
-- **`structured_adjustment` schema**: the LLM is asked (via OpenAI structured
-  outputs / JSON schema) to always return an object with all possible
-  adjustment fields (`hours`, `factor`, `minimum_energy_kwh`,
-  `max_grid_kwh`), using `null` for fields that don't apply to the chosen
-  `directive_type`. `app/guardrails.py` only reads the field(s) relevant to
-  the validated `directive_type`.
+- **`structured_adjustment` schema**: the system prompt asks the model to
+  always return a single JSON object with all possible adjustment fields
+  (`hours`, `factor`, `minimum_energy_kwh`, `max_grid_kwh`), using `null` for
+  fields that don't apply to the chosen `directive_type`.
+  `app/guardrails.py` only reads the field(s) relevant to the validated
+  `directive_type` and ignores everything else, so it tolerates models that
+  don't follow the shape perfectly.
+- **JSON mode, not strict schema enforcement**: OpenRouter fronts many
+  different providers/models, and not all of them support strict
+  provider-side JSON-schema enforcement. `app/llm_interpreter.py` uses the
+  more broadly-supported `{"type": "json_object"}` response format plus an
+  explicit example in the prompt, and also tolerates a model wrapping its
+  JSON in markdown fences or stray text (`_extract_json_object`). Guardrails
+  are the real safety net regardless of what comes back.
 
 ## Known limitations
 
@@ -194,14 +206,17 @@ must be supplied at `docker run` time via `-e OPENAI_API_KEY=...`.
 - `plan_summary` is generated deterministically from the applied directives
   and totals (not by the LLM) to keep it cheap, fast, and to keep the LLM's
   role strictly on operator-note interpretation as required.
-- Only OpenAI is wired up as the LLM provider. Swapping providers means
-  reimplementing `app/llm_interpreter.py`'s `interpret_notes` function; the
-  guardrail/optimizer layers are provider-agnostic.
+- The LLM provider is [OpenRouter](https://openrouter.ai/), accessed via the
+  OpenAI Python SDK pointed at OpenRouter's OpenAI-compatible endpoint.
+  Swapping the underlying model is a one-line env var change
+  (`OPENROUTER_MODEL`); swapping to a different provider entirely means
+  reimplementing `app/llm_interpreter.py`'s `interpret_notes` function — the
+  guardrail/optimizer layers are provider-agnostic either way.
 
 ## Credits / dependencies
 
 - [FastAPI](https://fastapi.tiangolo.com/) / [Uvicorn](https://www.uvicorn.org/) — HTTP service.
 - [Pydantic](https://docs.pydantic.dev/) — request/response schema validation.
 - [PuLP](https://github.com/coin-or/pulp) (bundled CBC) — linear programming solver.
-- [OpenAI Python SDK](https://github.com/openai/openai-python) — LLM calls.
+- [OpenAI Python SDK](https://github.com/openai/openai-python) — used as an OpenAI-compatible client for [OpenRouter](https://openrouter.ai/) LLM calls.
 - [pytest](https://docs.pytest.org/) / [httpx](https://www.python-httpx.org/) — testing.

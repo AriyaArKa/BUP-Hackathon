@@ -17,7 +17,11 @@ from pathlib import Path
 
 import httpx
 
-SAMPLES_PATH = Path(__file__).resolve().parent.parent / "BUP_CSE_FEST_2026_Preli_Public_Sample_Cases.json"
+SAMPLES_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "hackathon_details"
+    / "BUP_CSE_FEST_2026_Preli_Public_Sample_Cases.json"
+)
 
 
 def energy_balance_ok(hour, plan_entry):

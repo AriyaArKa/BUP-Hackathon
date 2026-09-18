@@ -1,16 +1,26 @@
-"""LLM-backed interpretation of operator notes.
+"""LLM-backed interpretation of operator notes, via OpenRouter.
 
-This is the only place a language model touches the pipeline. Its output is
-treated as untrusted structured data -- guardrails.py is solely responsible
-for deciding what is safe to hand to the optimizer.
+OpenRouter exposes an OpenAI-compatible Chat Completions API in front of many
+different models (proprietary and open-weight), so this uses the OpenAI SDK
+pointed at OpenRouter's base URL. This is the only place a language model
+touches the pipeline. Its output is treated as untrusted structured data --
+guardrails.py is solely responsible for deciding what is safe to hand to the
+optimizer, so this module deliberately does not need strict provider-side
+JSON-schema enforcement to be safe.
 """
 
 import json
+import re
 from typing import List
 
 from openai import AsyncOpenAI
 
-from app.config import LLM_TIMEOUT_SECONDS, OPENAI_API_KEY, OPENAI_MODEL
+from app.config import (
+    LLM_TIMEOUT_SECONDS,
+    OPENROUTER_API_KEY,
+    OPENROUTER_BASE_URL,
+    OPENROUTER_MODEL,
+)
 
 SYSTEM_PROMPT = """You are the operator-note interpreter for a smart-campus energy \
 scheduling system called GridWise. You convert short natural-language notes from \
@@ -42,64 +52,31 @@ Rules:
   as the notes are given, using note_index equal to the note's position
   (0-based).
 - For directive types other than no_op, set applies to true. For no_op, set
-  applies to false.
-- Always populate structured_adjustment as an object. Only the fields relevant
-  to the chosen directive_type matter; set irrelevant numeric fields to null
-  and hours to an empty list for no_op.
+  applies to false and structured_adjustment to null.
+
+Respond with ONLY a single JSON object (no markdown fences, no commentary)
+matching exactly this shape:
+
+{
+  "directive_interpretation": [
+    {
+      "note_index": 0,
+      "applies": true,
+      "directive_type": "solar_reduction",
+      "structured_adjustment": {"hours": [13, 14], "factor": 0.2},
+      "explanation": "short explanation"
+    }
+  ]
+}
+
+For no_charge_window / no_discharge_window, structured_adjustment is
+{"hours": [...]} only. For minimum_battery_reserve, it is
+{"hours": [...], "minimum_energy_kwh": number}. For max_grid_window, it is
+{"hours": [...], "max_grid_kwh": number}. For no_op, structured_adjustment is
+null.
 """
 
-RESPONSE_SCHEMA = {
-    "name": "directive_interpretation_batch",
-    "strict": True,
-    "schema": {
-        "type": "object",
-        "properties": {
-            "directive_interpretation": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "note_index": {"type": "integer"},
-                        "applies": {"type": "boolean"},
-                        "directive_type": {
-                            "type": "string",
-                            "enum": [
-                                "solar_reduction",
-                                "minimum_battery_reserve",
-                                "no_charge_window",
-                                "no_discharge_window",
-                                "max_grid_window",
-                                "no_op",
-                            ],
-                        },
-                        "structured_adjustment": {
-                            "type": "object",
-                            "properties": {
-                                "hours": {"type": "array", "items": {"type": "integer"}},
-                                "factor": {"type": ["number", "null"]},
-                                "minimum_energy_kwh": {"type": ["number", "null"]},
-                                "max_grid_kwh": {"type": ["number", "null"]},
-                            },
-                            "required": ["hours", "factor", "minimum_energy_kwh", "max_grid_kwh"],
-                            "additionalProperties": False,
-                        },
-                        "explanation": {"type": "string"},
-                    },
-                    "required": [
-                        "note_index",
-                        "applies",
-                        "directive_type",
-                        "structured_adjustment",
-                        "explanation",
-                    ],
-                    "additionalProperties": False,
-                },
-            }
-        },
-        "required": ["directive_interpretation"],
-        "additionalProperties": False,
-    },
-}
+_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def _build_user_prompt(operator_notes: List[str]) -> str:
@@ -107,27 +84,49 @@ def _build_user_prompt(operator_notes: List[str]) -> str:
     return f"Operator notes for this scenario (note_index: text):\n{numbered}"
 
 
-async def interpret_notes(operator_notes: List[str]) -> List[dict]:
-    """Call the LLM and return its raw (untrusted) directive candidates."""
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY is not configured")
+def _extract_json_object(raw_text: str) -> dict:
+    """Models occasionally wrap JSON in markdown fences or add stray text.
+    Try a direct parse first, then fall back to extracting the outermost
+    {...} block, since guardrails.py needs a dict to inspect even from a
+    slightly malformed response.
+    """
+    try:
+        return json.loads(raw_text)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    match = _JSON_OBJECT_RE.search(raw_text or "")
+    if not match:
+        return {}
+    try:
+        return json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return {}
 
-    client = AsyncOpenAI(api_key=OPENAI_API_KEY, timeout=LLM_TIMEOUT_SECONDS)
+
+async def interpret_notes(operator_notes: List[str]) -> List[dict]:
+    """Call the LLM (via OpenRouter) and return its raw (untrusted) directive candidates."""
+    if not OPENROUTER_API_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY is not configured")
+
+    client = AsyncOpenAI(
+        api_key=OPENROUTER_API_KEY, base_url=OPENROUTER_BASE_URL, timeout=LLM_TIMEOUT_SECONDS
+    )
     try:
         completion = await client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=OPENROUTER_MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": _build_user_prompt(operator_notes)},
             ],
-            response_format={"type": "json_schema", "json_schema": RESPONSE_SCHEMA},
+            response_format={"type": "json_object"},
             temperature=0,
+            extra_headers={"X-Title": "GridWise LLM - BUP CSE Fest 2026"},
         )
     finally:
         await client.close()
 
     content = completion.choices[0].message.content
-    parsed = json.loads(content)
+    parsed = _extract_json_object(content)
     entries = parsed.get("directive_interpretation", [])
     if not isinstance(entries, list):
         return []
