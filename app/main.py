@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -28,7 +29,9 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     for error in exc.errors():
         if error.get("type") == "json_invalid":
             return JSONResponse(status_code=400, content={"detail": "Malformed JSON request body."})
-    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+    # jsonable_encoder: custom validators put the raw ValueError in each
+    # error's "ctx", which JSONResponse cannot serialize (would become a 500).
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors())})
 
 
 @app.exception_handler(Exception)
