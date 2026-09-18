@@ -10,6 +10,7 @@ import math
 from typing import Any, List, Optional
 
 from app.schemas import DirectiveInterpretation
+from app.time_window import parse_time_window
 
 ALLOWED_DIRECTIVE_TYPES = {
     "solar_reduction",
@@ -54,7 +55,10 @@ def _fallback(note_index: int, reason: str = FALLBACK_EXPLANATION) -> DirectiveI
 
 
 def _validate_single(
-    note_index: int, entry: Optional[dict], battery_capacity_kwh: float
+    note_index: int,
+    entry: Optional[dict],
+    battery_capacity_kwh: float,
+    original_note: str = "",
 ) -> DirectiveInterpretation:
     if not isinstance(entry, dict):
         return _fallback(note_index)
@@ -82,6 +86,14 @@ def _validate_single(
     hours = _validate_hours(adjustment.get("hours"))
     if hours is None:
         return _fallback(note_index)
+
+    # Deterministic cross-check: the LLM is observed to occasionally miscount
+    # whole-hour windows on explicit "X to/until Y" phrasing. When the note
+    # text yields a confident deterministic parse, prefer it over the model's
+    # arithmetic rather than trusting an LLM-computed hour range.
+    deterministic_hours = parse_time_window(original_note)
+    if deterministic_hours is not None and deterministic_hours != hours:
+        hours = deterministic_hours
 
     if directive_type == "solar_reduction":
         factor = adjustment.get("factor")
@@ -120,7 +132,10 @@ def _validate_single(
 
 
 def guardrail_validate(
-    raw_entries: List[dict], num_notes: int, battery_capacity_kwh: float
+    raw_entries: List[dict],
+    num_notes: int,
+    battery_capacity_kwh: float,
+    original_notes: Optional[List[str]] = None,
 ) -> List[DirectiveInterpretation]:
     """Reduce untrusted LLM output to exactly one safe entry per note, in order."""
     by_index: dict[int, dict] = {}
@@ -136,7 +151,13 @@ def guardrail_validate(
             continue
         by_index[raw_index] = entry
 
+    notes = original_notes or []
     return [
-        _validate_single(i, by_index.get(i), battery_capacity_kwh)
+        _validate_single(
+            i,
+            by_index.get(i),
+            battery_capacity_kwh,
+            notes[i] if i < len(notes) else "",
+        )
         for i in range(num_notes)
     ]

@@ -70,7 +70,7 @@ Energy Data + Operator Notes
 | `OPENROUTER_API_KEY` | Yes | — | OpenRouter API key used for operator-note interpretation. |
 | `OPENROUTER_MODEL` | No | `meta-llama/llama-3.3-70b-instruct` | OpenRouter model identifier used for interpretation. Swap to any model on [openrouter.ai/models](https://openrouter.ai/models) (e.g. an OpenRouter `:free` variant, or a top-ranked proprietary model) without code changes. |
 | `OPENROUTER_BASE_URL` | No | `https://openrouter.ai/api/v1` | OpenRouter's OpenAI-compatible endpoint. |
-| `LLM_TIMEOUT_SECONDS` | No | `20` | Per-request timeout for the LLM call. |
+| `LLM_TIMEOUT_SECONDS` | No | `25` | Per-request timeout for the LLM call (kept under the API's 30s hard request-timeout budget). |
 | `PORT` | No | `8000` | Port the service listens on. |
 
 Copy `.env.example` to `.env` and fill in `OPENROUTER_API_KEY` before running
@@ -81,7 +81,7 @@ excludes it.
 
 ```bash
 git clone <this-repo-url>
-cd BUP
+cd BUP-Hackathon
 cp .env.example .env        # then edit .env and set OPENROUTER_API_KEY
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
@@ -183,6 +183,18 @@ must be supplied at `docker run` time via `-e OPENROUTER_API_KEY=...`.
   back to `no_op` and the optimizer still returns a valid schedule under the
   normal GridWise rules — the service never crashes or 5xxs on a provider
   outage, per the "safe failure" requirement in the Problem Statement.
+- **Deterministic hour-window cross-check**: the LLM was observed in testing
+  to occasionally miscount explicit whole-hour windows on multi-hour spans
+  (e.g. "6 PM until 9 PM" → `[18,19,20]` instead of `[18,19,20,21]`), roughly
+  1 in 3-5 calls on the default `OPENROUTER_MODEL`. Because operator notes
+  almost always state times explicitly, `app/guardrails.py` re-parses the
+  original note text with a deterministic regex parser
+  (`app/time_window.py::parse_time_window`) and, when it gets a confident
+  parse, that parse overrides the LLM's `hours` field rather than trusting
+  the model's arithmetic. This does not replace the LLM (which still decides
+  directive type, `applies`/`no_op`, and numeric values) — it only removes
+  a demonstrated LLM weak point from a place where a cheap deterministic
+  check is exact.
 - **`structured_adjustment` schema**: the system prompt asks the model to
   always return a single JSON object with all possible adjustment fields
   (`hours`, `factor`, `minimum_energy_kwh`, `max_grid_kwh`), using `null` for
@@ -200,6 +212,14 @@ must be supplied at `docker run` time via `-e OPENROUTER_API_KEY=...`.
 
 ## Known limitations
 
+- **LLM latency variance**: the default `OPENROUTER_MODEL`
+  (`meta-llama/llama-3.3-70b-instruct`) occasionally takes close to or beyond
+  `LLM_TIMEOUT_SECONDS`, which then falls back to `no_op` for every note in
+  that request (losing real interpretation credit for that request, though
+  the service still returns a valid 200 response under normal GridWise
+  rules — it never crashes or 5xxs). Observed rate in testing: roughly 1 in
+  15-20 requests. If judged latency/reliability matters more than this
+  model's cost, swap `OPENROUTER_MODEL` to a faster proprietary model.
 - The optimizer assumes lossless battery charge/discharge (no round-trip
   efficiency factor), matching the energy-balance equation given in the
   Problem Statement.

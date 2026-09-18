@@ -68,14 +68,18 @@ async def optimize_energy(payload: OptimizeEnergyRequest) -> OptimizeEnergyRespo
         # the hard ceiling that guarantees the API contract's per-request
         # timeout regardless of what the LLM provider does.
         raw_llm_entries = await asyncio.wait_for(
-            interpret_notes(payload.operator_notes), timeout=LLM_TIMEOUT_SECONDS
+            interpret_notes(payload.operator_notes, payload.battery.capacity_kwh),
+            timeout=LLM_TIMEOUT_SECONDS,
         )
     except Exception:
         logger.exception("LLM interpretation failed; falling back to no_op for all notes")
         raw_llm_entries = []
 
     directives = guardrail_validate(
-        raw_llm_entries, len(payload.operator_notes), payload.battery.capacity_kwh
+        raw_llm_entries,
+        len(payload.operator_notes),
+        payload.battery.capacity_kwh,
+        payload.operator_notes,
     )
 
     try:

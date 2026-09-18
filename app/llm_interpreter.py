@@ -31,7 +31,10 @@ Supported directive types (use exactly one per note):
   structured_adjustment.factor is the USABLE FRACTION REMAINING (an 80% reduction
   means factor = 0.2).
 - minimum_battery_reserve: battery energy must stay at or above a level during
-  specific hours. Use structured_adjustment.minimum_energy_kwh.
+  specific hours. Use structured_adjustment.minimum_energy_kwh, which is ALWAYS
+  an absolute kWh amount (never a raw percentage or a 0-1 fraction). If the note
+  gives a percentage of capacity, convert it to kWh yourself using the battery
+  capacity_kwh given in the user message.
 - no_charge_window: battery charging is unavailable during specific hours.
 - no_discharge_window: battery discharging is unavailable during specific hours.
 - max_grid_window: grid import may not exceed a stated amount during specific
@@ -87,9 +90,19 @@ _client = AsyncOpenAI(
 )
 
 
-def _build_user_prompt(operator_notes: List[str]) -> str:
+def _build_user_prompt(operator_notes: List[str], battery_capacity_kwh: float) -> str:
     numbered = "\n".join(f"{i}: {note}" for i, note in enumerate(operator_notes))
-    return f"Operator notes for this scenario (note_index: text):\n{numbered}"
+    return (
+        f"Battery capacity_kwh: {battery_capacity_kwh}\n"
+        "If any note states a minimum_battery_reserve as a PERCENTAGE of capacity "
+        "(e.g. \"keep at least 50% of battery capacity\"), you must convert it to an "
+        f"absolute kWh number yourself using this capacity_kwh before writing "
+        f"minimum_energy_kwh -- e.g. 50% of {battery_capacity_kwh} kWh = "
+        f"{0.5 * battery_capacity_kwh} kWh. Never output the raw percentage or a 0-1 "
+        "fraction for minimum_energy_kwh; it must always be an absolute kWh amount "
+        "between 0 and capacity_kwh.\n\n"
+        f"Operator notes for this scenario (note_index: text):\n{numbered}"
+    )
 
 
 def _extract_json_object(raw_text: str) -> dict:
@@ -111,7 +124,7 @@ def _extract_json_object(raw_text: str) -> dict:
         return {}
 
 
-async def interpret_notes(operator_notes: List[str]) -> List[dict]:
+async def interpret_notes(operator_notes: List[str], battery_capacity_kwh: float) -> List[dict]:
     """Call the LLM (via OpenRouter) and return its raw (untrusted) directive candidates."""
     if not OPENROUTER_API_KEY:
         raise RuntimeError("OPENROUTER_API_KEY is not configured")
@@ -120,7 +133,7 @@ async def interpret_notes(operator_notes: List[str]) -> List[dict]:
         model=OPENROUTER_MODEL,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _build_user_prompt(operator_notes)},
+            {"role": "user", "content": _build_user_prompt(operator_notes, battery_capacity_kwh)},
         ],
         response_format={"type": "json_object"},
         temperature=0,

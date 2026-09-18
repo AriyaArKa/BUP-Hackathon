@@ -36,7 +36,7 @@ def test_health():
 
 
 def test_optimize_energy_happy_path(monkeypatch):
-    async def fake_interpret(notes):
+    async def fake_interpret(notes, capacity_kwh):
         return [
             {
                 "note_index": 0,
@@ -61,7 +61,7 @@ def test_optimize_energy_happy_path(monkeypatch):
 
 
 def test_optimize_energy_llm_failure_falls_back_to_no_op(monkeypatch):
-    async def failing_interpret(notes):
+    async def failing_interpret(notes, capacity_kwh):
         raise RuntimeError("simulated LLM/provider outage")
 
     monkeypatch.setattr(main, "interpret_notes", failing_interpret)
@@ -79,7 +79,7 @@ def test_hanging_llm_call_is_hard_bounded_and_falls_back(monkeypatch):
     # trust that -- it wraps the call in asyncio.wait_for as a hard ceiling.
     monkeypatch.setattr(main, "LLM_TIMEOUT_SECONDS", 0.2)
 
-    async def hanging_interpret(notes):
+    async def hanging_interpret(notes, capacity_kwh):
         await asyncio.sleep(10)
         return []  # pragma: no cover - should never be reached
 
