@@ -10,6 +10,24 @@ Canonical behavior is defined by the organizers'
 `hackathon_details/BUP_CSE_FEST_2026_Preliminary_Problem_Statement_GridWise_LLM.pdf`.
 This README only documents how to run and test this implementation.
 
+## Live deployment
+
+| | |
+|---|---|
+| Base URL | `https://bup-hackathon-vimu.onrender.com` |
+| Health | [`GET /health`](https://bup-hackathon-vimu.onrender.com/health) |
+| Optimize | `POST https://bup-hackathon-vimu.onrender.com/optimize-energy` |
+
+```bash
+curl https://bup-hackathon-vimu.onrender.com/health
+# {"status":"ok"}
+```
+
+Hosted on [Render](https://render.com/). Render's free tier spins down after
+idling and takes a bit to cold-start on the next request — if `/health` is
+slow on the very first call after a period of inactivity, that's why; it
+settles into normal latency immediately after.
+
 ## Architecture
 
 ```
@@ -41,6 +59,38 @@ Energy Data + Operator Notes
         ▼
   Final response (app/main.py) — totals recalculated from hourly_plan itself,
                                   never trusted from solver internals directly.
+```
+
+Same pipeline as a Mermaid diagram (renders natively on GitHub), including the
+validation/fallback/error branches the text version above doesn't show:
+
+```mermaid
+flowchart TD
+    A["Client POST /optimize-energy<br/>scenario + 1-3 operator_notes"] --> B{"Request schema valid?<br/>(app/schemas.py)"}
+    B -- "No" --> B1["400 Malformed JSON /<br/>422 Schema Invalid"]
+
+    B -- "Yes" --> C["LLM Interpreter<br/>app/llm_interpreter.py<br/>OpenRouter API call"]
+    C -- "Provider error / hard timeout<br/>(asyncio.wait_for)" --> D2["Fallback:<br/>treat every note as no_op"]
+    C -- "Response received" --> D1["Raw directive candidates<br/>(untrusted JSON)"]
+
+    D1 --> E["Guardrail Validator — app/guardrails.py<br/>deterministic, never trusts the LLM"]
+    D2 --> E
+
+    E --> E1["Hour-window cross-check<br/>app/time_window.py"]
+    E --> E2["Percentage-to-kWh reserve<br/>normalization"]
+    E1 --> F["Validated directive_interpretation<br/>1 entry per note, safe no_op on any failure"]
+    E2 --> F
+
+    F --> G["Math Optimizer — app/optimizer.py<br/>PuLP linear program (CBC solver)<br/>minimizes grid cost under energy/battery constraints"]
+    G --> H["Final Replay Validator<br/>_final_replay_check<br/>independently re-verifies every hour + directive"]
+
+    H -- "Valid" --> I["200 OK<br/>directive_interpretation + hourly_plan + totals"]
+    H -- "Should never happen —<br/>numeric solver edge case" --> I2["500 Controlled Error<br/>no stack trace / secrets exposed"]
+
+    style B1 fill:#5a1f1f,color:#fff
+    style I2 fill:#5a1f1f,color:#fff
+    style D2 fill:#5a4a1f,color:#fff
+    style I fill:#1f4d2b,color:#fff
 ```
 
 - **LLM role**: interpreting `operator_notes` into candidate structured
@@ -133,8 +183,13 @@ and a real `OPENROUTER_API_KEY` configured:
 python scripts/run_public_samples.py http://localhost:8000
 ```
 
-This posts all 10 public cases to the live endpoint and reports schema
-validity, constraint validity, and cost vs. the organizer reference for each.
+This posts all 10 public cases to the live endpoint using the real configured
+LLM, and for each case reports: schema validity, energy-balance/constraint
+validity, a diff of the returned `directive_interpretation` against the
+organizer's reference ground truth (directive type, `applies`, hours, and
+numeric fields — this is the check that actually exercises the mandatory LLM
+path end-to-end, not just the deterministic layers), and cost vs. the
+organizer reference optimum.
 
 ## Running the test suite
 
@@ -195,6 +250,18 @@ must be supplied at `docker run` time via `-e OPENROUTER_API_KEY=...`.
   directive type, `applies`/`no_op`, and numeric values) — it only removes
   a demonstrated LLM weak point from a place where a cheap deterministic
   check is exact.
+- **Deterministic percentage-reserve normalization**: for
+  `minimum_battery_reserve`, the note text is allowed to state the reserve as
+  a percentage of capacity (e.g. "keep at least 50% of battery capacity").
+  The system/user prompt in `app/llm_interpreter.py` tells the model to
+  convert that itself using the `battery.capacity_kwh` it's given, but
+  `app/guardrails.py::_percentage_reserve_override` never trusts that the
+  model's arithmetic was correct: if the original note text contains an
+  explicit `N%`, guardrails deterministically recompute
+  `minimum_energy_kwh = (N / 100) * capacity_kwh` and that value overrides
+  whatever number the LLM produced. Same philosophy as the hour-window
+  cross-check above — the LLM decides *what* directive and *that* a
+  percentage was given; deterministic code does the arithmetic.
 - **`structured_adjustment` schema**: the system prompt asks the model to
   always return a single JSON object with all possible adjustment fields
   (`hours`, `factor`, `minimum_energy_kwh`, `max_grid_kwh`), using `null` for
