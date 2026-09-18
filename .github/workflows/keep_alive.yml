@@ -1,0 +1,15 @@
+name: Render Keep Alive
+
+on:
+  schedule:
+    # Run every 5 minutes automatically on GitHub Actions
+    - cron: '*/5 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  ping-render:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Health Endpoint
+        run: |
+          curl -s -o /dev/null -w "%{http_code}" https://bup-hackathon-vimu.onrender.com/health
