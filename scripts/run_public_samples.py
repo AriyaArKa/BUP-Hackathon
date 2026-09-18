@@ -32,6 +32,37 @@ def energy_balance_ok(hour, plan_entry):
     return abs(lhs - rhs) <= 0.05
 
 
+def directive_interpretation_diffs(expected_entries, got_entries, tol=0.5):
+    """Compare the LLM-derived directive_interpretation against the
+    organizer's reference. Returns a list of human-readable diffs (empty if
+    it matches). This is the check that actually exercises the mandatory LLM
+    path against the golden set -- schema/cost checks alone don't."""
+    diffs = []
+    if len(expected_entries) != len(got_entries):
+        diffs.append(f"count mismatch: got {len(got_entries)}, expected {len(expected_entries)}")
+        return diffs
+    for exp, got in zip(expected_entries, got_entries):
+        idx = exp["note_index"]
+        if got.get("directive_type") != exp["directive_type"] or got.get("applies") != exp["applies"]:
+            diffs.append(
+                f"note {idx}: expected {exp['directive_type']}/{exp['applies']}, "
+                f"got {got.get('directive_type')}/{got.get('applies')}"
+            )
+            continue
+        exp_adj = exp.get("structured_adjustment")
+        if exp_adj is None:
+            continue
+        got_adj = got.get("structured_adjustment") or {}
+        if got_adj.get("hours") != exp_adj.get("hours"):
+            diffs.append(f"note {idx}: hours {got_adj.get('hours')} != expected {exp_adj.get('hours')}")
+        for key in ("factor", "minimum_energy_kwh", "max_grid_kwh"):
+            if key in exp_adj:
+                got_val = got_adj.get(key)
+                if not isinstance(got_val, (int, float)) or abs(got_val - exp_adj[key]) > tol:
+                    diffs.append(f"note {idx}: {key} {got_val!r} != expected {exp_adj[key]!r}")
+    return diffs
+
+
 def main() -> int:
     base_url = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
 
@@ -62,6 +93,13 @@ def main() -> int:
         if len(body.get("directive_interpretation", [])) != len(scenario["operator_notes"]):
             ok = False
 
+        interpretation_diffs = directive_interpretation_diffs(
+            case["expected_output"]["directive_interpretation"],
+            body.get("directive_interpretation", []),
+        )
+        if interpretation_diffs:
+            ok = False
+
         plan = body.get("hourly_plan", [])
         if len(plan) != 24:
             ok = False
@@ -82,6 +120,8 @@ def main() -> int:
             passed += 1
         else:
             print(f"[FAIL] {case['id']}: schema/constraint check failed, {cost_note}")
+            for diff in interpretation_diffs:
+                print(f"       interpretation mismatch: {diff}")
             failed += 1
 
     print(f"\n{passed} passed, {failed} failed out of {len(data['cases'])} public cases.")

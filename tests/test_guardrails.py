@@ -99,6 +99,53 @@ def test_minimum_battery_reserve_above_capacity_falls_back():
     assert result[0].directive_type == "no_op"
 
 
+def test_percentage_reserve_is_deterministically_normalized_even_if_llm_mismath():
+    # FR-GUARD-5: percentage normalization must be deterministic in
+    # guardrails, not left to the LLM's own arithmetic. Simulate the LLM
+    # getting it wrong (returning the raw fraction 0.5 instead of 100 kWh
+    # for "50% of 200 kWh") -- guardrails must still produce the correct kWh.
+    raw = [
+        {
+            "note_index": 0,
+            "applies": True,
+            "directive_type": "minimum_battery_reserve",
+            "structured_adjustment": {"hours": [18, 19, 20], "minimum_energy_kwh": 0.5},
+            "explanation": "50% reserve",
+        }
+    ]
+    result = guardrail_validate(
+        raw,
+        num_notes=1,
+        battery_capacity_kwh=200,
+        original_notes=["Keep at least 50% of the battery capacity from 6 PM until 9 PM."],
+    )
+    assert result[0].directive_type == "minimum_battery_reserve"
+    assert result[0].structured_adjustment["minimum_energy_kwh"] == 100.0
+
+
+def test_deterministic_hour_window_overrides_llm_miscount():
+    # The LLM is observed in practice to occasionally miscount explicit
+    # whole-hour windows. Guardrails must prefer a confident deterministic
+    # parse of the note text over the model's (wrong) hours field.
+    raw = [
+        {
+            "note_index": 0,
+            "applies": True,
+            "directive_type": "no_charge_window",
+            # LLM undercounted: should be [18, 19, 20] for "6 PM until 9 PM"
+            "structured_adjustment": {"hours": [18, 19]},
+            "explanation": "isolated for maintenance",
+        }
+    ]
+    result = guardrail_validate(
+        raw,
+        num_notes=1,
+        battery_capacity_kwh=500,
+        original_notes=["The charger will be isolated from 6 PM until 9 PM for maintenance."],
+    )
+    assert result[0].structured_adjustment["hours"] == [18, 19, 20]
+
+
 def test_no_op_forces_applies_false_and_null_adjustment_even_if_llm_disagrees():
     raw = [
         {

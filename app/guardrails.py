@@ -7,6 +7,7 @@ replaced with a safe no_op fallback instead of crashing or inventing a rule.
 """
 
 import math
+import re
 from typing import Any, List, Optional
 
 from app.schemas import DirectiveInterpretation
@@ -22,6 +23,24 @@ ALLOWED_DIRECTIVE_TYPES = {
 }
 
 FALLBACK_EXPLANATION = "Guardrail fallback: model output was missing or failed validation."
+
+_PERCENT_RE = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+
+
+def _percentage_reserve_override(original_note: str, battery_capacity_kwh: float) -> Optional[float]:
+    """FR-GUARD-5 requires guardrails -- not the LLM's own arithmetic -- to be
+    the thing that normalizes a percentage reserve to kWh. If the note text
+    states a plain percentage, deterministically recompute the kWh amount
+    from `battery_capacity_kwh` and let it override whatever number the LLM
+    produced, rather than trusting the model to have done that math right.
+    """
+    match = _PERCENT_RE.search(original_note or "")
+    if not match:
+        return None
+    pct = float(match.group(1))
+    if not (0.0 <= pct <= 100.0):
+        return None
+    return (pct / 100.0) * battery_capacity_kwh
 
 
 def _is_number(value: Any) -> bool:
@@ -105,7 +124,11 @@ def _validate_single(
         min_kwh = adjustment.get("minimum_energy_kwh")
         if not _is_number(min_kwh) or not (0.0 <= float(min_kwh) <= battery_capacity_kwh):
             return _fallback(note_index)
-        clean_adjustment = {"hours": hours, "minimum_energy_kwh": float(min_kwh)}
+        min_kwh = float(min_kwh)
+        pct_override = _percentage_reserve_override(original_note, battery_capacity_kwh)
+        if pct_override is not None:
+            min_kwh = pct_override
+        clean_adjustment = {"hours": hours, "minimum_energy_kwh": min_kwh}
 
     elif directive_type == "no_charge_window":
         clean_adjustment = {"hours": hours}
