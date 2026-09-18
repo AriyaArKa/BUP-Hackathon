@@ -215,6 +215,29 @@ This runs three layers, none of which require an API key:
 
 ## Docker
 
+### Prebuilt fallback image (Docker Hub)
+
+- Image: `docker.io/sheikhgalib/bup-hackathon:v1`
+- Digest: `sha256:87028d52494139171f1a3f993212139fab73df03ecfd9c9059ac03f57c8b2920`
+- Platform: `linux/amd64`
+- Exposed port: `8000` (binds to `0.0.0.0`)
+- Required env var: `OPENROUTER_API_KEY`
+- Optional env vars: `OPENROUTER_MODEL` (default `meta-llama/llama-3.3-70b-instruct`),
+  `OPENROUTER_BASE_URL` (default `https://openrouter.ai/api/v1`),
+  `LLM_TIMEOUT_SECONDS` (default `25`)
+
+```bash
+docker pull sheikhgalib/bup-hackathon:v1
+docker run --rm -p 8000:8000 -e OPENROUTER_API_KEY=<your_openrouter_key> sheikhgalib/bup-hackathon:v1
+curl http://localhost:8000/health
+python scripts/run_public_samples.py http://localhost:8000
+```
+
+To pin the exact tested build, use
+`sheikhgalib/bup-hackathon@sha256:87028d52494139171f1a3f993212139fab73df03ecfd9c9059ac03f57c8b2920`.
+
+### Build locally
+
 ```bash
 docker build -t gridwise-llm .
 docker run --rm -p 8000:8000 -e OPENROUTER_API_KEY=sk-or-v1-... gridwise-llm
